@@ -161,13 +161,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.uniqLabelList = UniqueLabelQListWidget()
         self.uniqLabelList.setToolTip(
-            self.tr("Select label to start annotating for it. Press 'Esc' to deselect.")
+            self.tr("Select label to start annotating for it. Press 'Esc' to deselect. Click to assign to selected shapes.")
         )
         if self._config["labels"]:
             for idx, label in enumerate(self._config["labels"]):
                 self.uniqLabelList.add_label_item(
                     label=label, color=self._get_rgb_by_label(label=label), index=idx
                 )
+        # Connect item click to assign label to selected shapes
+        self.uniqLabelList.itemClicked.connect(self._on_label_list_item_clicked)
         self.label_dock = QtWidgets.QDockWidget(self.tr("Label List"), self)
         self.label_dock.setObjectName("Label List")
         self.label_dock.setWidget(self.uniqLabelList)
@@ -1486,6 +1488,19 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Update canvas
         self.canvas.update()
+
+    def _on_label_list_item_clicked(self, item: QtWidgets.QListWidgetItem) -> None:
+        """Handle click on label in unique label list to assign label to selected shapes."""
+        # Only assign if canvas is in editing mode and has selected shapes
+        if not self.canvas.editing():
+            return
+        if not self.canvas.selectedShapes:
+            return
+        
+        # Get label text from item
+        label_text = item.data(Qt.UserRole)
+        if label_text:
+            self._assign_label_to_selected_shapes(label_text)
 
     def addLabel(self, shape):
         if shape.group_id is None:
