@@ -164,9 +164,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Select label to start annotating for it. Press 'Esc' to deselect.")
         )
         if self._config["labels"]:
-            for label in self._config["labels"]:
+            for idx, label in enumerate(self._config["labels"]):
                 self.uniqLabelList.add_label_item(
-                    label=label, color=self._get_rgb_by_label(label=label)
+                    label=label, color=self._get_rgb_by_label(label=label), index=idx
                 )
         self.label_dock = QtWidgets.QDockWidget(self.tr("Label List"), self)
         self.label_dock.setObjectName("Label List")
@@ -1297,9 +1297,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 item.setText(f"{shape.label} ({shape.group_id})")
             self.setDirty()
             if self.uniqLabelList.find_label_item(shape.label) is None:
+                index = self.uniqLabelList.count()
                 self.uniqLabelList.add_label_item(
-                    label=shape.label, color=self._get_rgb_by_label(label=shape.label)
+                    label=shape.label, color=self._get_rgb_by_label(label=shape.label), index=index
                 )
+                # Refresh all label numbers to ensure correct numbering
+                self.uniqLabelList.refresh_label_numbers()
 
     def fileSearchChanged(self):
         self._import_images_from_dir(
@@ -1323,22 +1326,123 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # React to canvas signals.
     def shapeSelectionChanged(self, selected_shapes):
-        self.labelList.itemSelectionChanged.disconnect(self._label_selection_changed)
+        try:
+            self.labelList.itemSelectionChanged.disconnect(self._label_selection_changed)
+        except TypeError:
+            # Signal not connected, ignore
+            pass
         for shape in self.canvas.selectedShapes:
             shape.selected = False
         self.labelList.clearSelection()
         self.canvas.selectedShapes = selected_shapes
         for shape in self.canvas.selectedShapes:
             shape.selected = True
-            item = self.labelList.findItemByShape(shape)
-            self.labelList.selectItem(item)
-            self.labelList.scrollToItem(item)
+            try:
+                item = self.labelList.findItemByShape(shape)
+                self.labelList.selectItem(item)
+                self.labelList.scrollToItem(item)
+            except ValueError:
+                # Shape not in label list yet, skip selection
+                pass
         self.labelList.itemSelectionChanged.connect(self._label_selection_changed)
         n_selected = len(selected_shapes)
         self.actions.delete.setEnabled(n_selected)
         self.actions.duplicate.setEnabled(n_selected)
         self.actions.copy.setEnabled(n_selected)
         self.actions.edit.setEnabled(n_selected)
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        """Handle keyboard shortcuts for label assignment."""
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # Only handle number keys when no modifiers are pressed
+        # and canvas is in editing mode with selected shapes
+        if modifiers == Qt.NoModifier and self.canvas.editing() and self.canvas.selectedShapes:
+            # Map number keys to indices: 1-9 -> 0-8, 0 -> 9
+            key_to_index = {
+                Qt.Key_1: 0,
+                Qt.Key_2: 1,
+                Qt.Key_3: 2,
+                Qt.Key_4: 3,
+                Qt.Key_5: 4,
+                Qt.Key_6: 5,
+                Qt.Key_7: 6,
+                Qt.Key_8: 7,
+                Qt.Key_9: 8,
+                Qt.Key_0: 9,
+            }
+            
+            if key in key_to_index:
+                index = key_to_index[key]
+                # Check if label exists at this index
+                if index < self.uniqLabelList.count():
+                    item = self.uniqLabelList.item(index)
+                    if item:
+                        label_text = item.data(Qt.UserRole)
+                        if label_text:
+                            self._assign_label_to_selected_shapes(label_text)
+                            event.accept()
+                            return
+        
+        # If not handled, call parent implementation
+        super().keyPressEvent(event)
+
+    def _assign_label_to_selected_shapes(self, label_text: str) -> None:
+        """Assign a label to all currently selected shapes."""
+        if not self.canvas.selectedShapes:
+            return
+        
+        # Validate label if validation is enabled
+        if not self.validateLabel(label_text):
+            self.errorMessage(
+                self.tr("Invalid label"),
+                self.tr("Invalid label '{}' with validation type '{}'").format(
+                    label_text, self._config["validate_label"]
+                ),
+            )
+            return
+        
+        # Store shapes state for undo
+        self.canvas.storeShapes()
+        
+        # Assign label to all selected shapes
+        for shape in self.canvas.selectedShapes:
+            shape.label = label_text
+            self._update_shape_color(shape)
+            
+            # Update the label list item for this shape, or create one if it doesn't exist
+            try:
+                item = self.labelList.findItemByShape(shape)
+            except ValueError:
+                # Shape not in label list yet, add it
+                self.addLabel(shape)
+                item = self.labelList.findItemByShape(shape)
+            
+            if item:
+                if shape.group_id is None:
+                    r, g, b = shape.fill_color.getRgb()[:3]
+                    item.setText(
+                        f"{html.escape(shape.label)} "
+                        f'<font color="#{r:02x}{g:02x}{b:02x}">●</font>'
+                    )
+                else:
+                    item.setText(f"{shape.label} ({shape.group_id})")
+        
+        # Mark as dirty
+        self.setDirty()
+        
+        # Add to unique label list if it doesn't exist
+        if self.uniqLabelList.find_label_item(label_text) is None:
+            index = self.uniqLabelList.count()
+            self.uniqLabelList.add_label_item(
+                label=label_text, color=self._get_rgb_by_label(label=label_text), index=index
+            )
+            # Refresh all label numbers to ensure correct numbering
+            self.uniqLabelList.refresh_label_numbers()
+        
+        # Update canvas
+        self.canvas.update()
 
     def addLabel(self, shape):
         if shape.group_id is None:
@@ -1348,9 +1452,12 @@ class MainWindow(QtWidgets.QMainWindow):
         label_list_item = LabelListWidgetItem(text, shape)
         self.labelList.addItem(label_list_item)
         if self.uniqLabelList.find_label_item(shape.label) is None:
+            index = self.uniqLabelList.count()
             self.uniqLabelList.add_label_item(
-                label=shape.label, color=self._get_rgb_by_label(label=shape.label)
+                label=shape.label, color=self._get_rgb_by_label(label=shape.label), index=index
             )
+            # Refresh all label numbers to ensure correct numbering
+            self.uniqLabelList.refresh_label_numbers()
         self.labelDialog.addLabelHistory(shape.label)
         for action in self.on_shapes_present_actions:
             action.setEnabled(True)

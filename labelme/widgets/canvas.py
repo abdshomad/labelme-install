@@ -1044,6 +1044,42 @@ class Canvas(QtWidgets.QWidget):
                 self.moveByKeyboard(QPointF(-MOVE_SPEED, 0.0))
             elif key == Qt.Key_Right:
                 self.moveByKeyboard(QPointF(MOVE_SPEED, 0.0))
+            elif modifiers == Qt.NoModifier and self.selectedShapes:
+                # Handle number keys for label assignment
+                # Map number keys to indices: 1-9 -> 0-8, 0 -> 9
+                key_to_index = {
+                    Qt.Key_1: 0,
+                    Qt.Key_2: 1,
+                    Qt.Key_3: 2,
+                    Qt.Key_4: 3,
+                    Qt.Key_5: 4,
+                    Qt.Key_6: 5,
+                    Qt.Key_7: 6,
+                    Qt.Key_8: 7,
+                    Qt.Key_9: 8,
+                    Qt.Key_0: 9,
+                }
+                if key in key_to_index:
+                    # Get the main window from widget hierarchy
+                    widget = self
+                    while widget is not None:
+                        widget = widget.parent()
+                        if widget is not None:
+                            # Check if this is the MainWindow by looking for the method
+                            if hasattr(widget, "_assign_label_to_selected_shapes"):
+                                index = key_to_index[key]
+                                # Get the unique label list from main window
+                                if hasattr(widget, "uniqLabelList"):
+                                    uniq_label_list = widget.uniqLabelList
+                                    if index < uniq_label_list.count():
+                                        item = uniq_label_list.item(index)
+                                        if item:
+                                            label_text = item.data(Qt.UserRole)
+                                            if label_text:
+                                                widget._assign_label_to_selected_shapes(label_text)
+                                                a0.accept()
+                                                return
+                                break
         self._update_status()
 
     def keyReleaseEvent(self, a0: QtGui.QKeyEvent) -> None:
