@@ -39,6 +39,11 @@ source "$VENV_DIR/bin/activate"
 # Sync dependencies using uv
 uv sync --dev
 
+# Install the package in editable mode to ensure it's properly compiled/installed
+echo ""
+echo "Installing labelme package in editable mode..."
+uv pip install -e .
+
 echo ""
 echo "=========================================="
 echo "✓ Installation completed successfully!"

@@ -51,8 +51,12 @@ if [ ! -d "$VENV_DIR" ]; then
     exit 1
 fi
 
-# Activate venv
-source "$VENV_DIR/bin/activate"
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "Error: uv is not installed. Please install uv first."
+    echo "Visit: https://github.com/astral-sh/uv"
+    exit 1
+fi
 
 # Check if YOLO directory exists
 if [ ! -d "$YOLO_DIR" ]; then
@@ -81,7 +85,7 @@ echo ""
 
 # Convert YOLO to Labelme format
 cd "$SCRIPT_DIR"
-python yolo2labelme.py "$YOLO_DIR" "$OUTPUT_DIR" \
+uv run python yolo2labelme.py "$YOLO_DIR" "$OUTPUT_DIR" \
     ${YAML_FILE:+--yaml "$YAML_FILE"} \
     --split "$SPLIT" \
     --no-image-data
@@ -96,9 +100,9 @@ echo ""
 LABELS_FILE="$OUTPUT_DIR/labels.txt"
 if [ -f "$LABELS_FILE" ]; then
     echo "Using labels from: $LABELS_FILE"
-    labelme "$OUTPUT_DIR" --labels "$LABELS_FILE" --nodata
+    uv run labelme "$OUTPUT_DIR" --labels "$LABELS_FILE" --nodata
 else
     echo "No labels.txt found, starting labelme without predefined labels..."
-    labelme "$OUTPUT_DIR" --nodata
+    uv run labelme "$OUTPUT_DIR" --nodata
 fi
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # run.sh - Run labelme application
-# Activates venv and runs labelme with optional arguments
+# Uses the uv venv created by install.sh and runs labelme with optional arguments
 
 set -e
 
@@ -17,6 +17,13 @@ if [ ! -d "$VENV_DIR" ]; then
     exit 1
 fi
 
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "Error: uv is not installed. Please install uv first."
+    echo "Visit: https://github.com/astral-sh/uv"
+    exit 1
+fi
+
 # Check if labelme is already running
 if [ -f "$PID_FILE" ]; then
     OLD_PID=$(cat "$PID_FILE")
@@ -29,9 +36,6 @@ if [ -f "$PID_FILE" ]; then
         rm -f "$PID_FILE"
     fi
 fi
-
-# Activate venv
-source "$VENV_DIR/bin/activate"
 
 # Change to script directory
 cd "$SCRIPT_DIR"
@@ -54,9 +58,9 @@ if [ -n "$DISPLAY" ]; then
 fi
 echo ""
 
-# Run labelme in background and capture PID
+# Run labelme using uv run (automatically uses the project's venv)
 # Pass all arguments to labelme
-nohup labelme "$@" > "$LOG_FILE" 2>&1 &
+nohup uv run labelme "$@" > "$LOG_FILE" 2>&1 &
 LABELME_PID=$!
 
 # Save PID to file
