@@ -11,6 +11,7 @@ from PyQt5.QtCore import QSettings
 from PyQt5.QtCore import QSize
 from PyQt5.QtCore import Qt
 from PyQt5.QtCore import QTimer
+from PyQt5.QtGui import QKeyEvent
 from pytestqt.qtbot import QtBot
 
 import labelme.app
@@ -205,5 +206,120 @@ def test_image_navigation_while_selecting_shape(
     qtbot.keyClick(win.canvas, Qt.Key_Down)
     qtbot.wait(100)
     # }}
+
+    win.close()
+
+
+@pytest.mark.gui
+def test_navigation_with_n_and_p_keys(qtbot: QtBot, data_path: pathlib.Path) -> None:
+    """Test vim-like navigation with n (next) and p (previous) keys."""
+    directory: str = str(data_path / "raw")
+    win: labelme.app.MainWindow = labelme.app.MainWindow(filename=directory)
+    qtbot.addWidget(win)
+    _show_window_and_wait_for_imagedata(qtbot=qtbot, win=win)
+
+    # Verify we have 3 images
+    assert win.fileListWidget.count() == 3
+    
+    # Get initial image name
+    initial_row = win.fileListWidget.currentRow()
+    assert initial_row == 0
+    assert win.imagePath
+    initial_image_name = pathlib.Path(win.imagePath).name
+    assert initial_image_name == "2011_000003.jpg"
+
+    # Test 1: Press 'n' to go to next image (should go to image 1)
+    qtbot.keyClick(win, Qt.Key_N)
+    qtbot.wait(100)
+    assert win.fileListWidget.currentRow() == 1
+    assert pathlib.Path(win.imagePath).name == "2011_000006.jpg"
+
+    # Test 2: Press 'p' to go to previous image (should go back to image 0)
+    qtbot.keyClick(win, Qt.Key_P)
+    qtbot.wait(100)
+    assert win.fileListWidget.currentRow() == 0
+    assert pathlib.Path(win.imagePath).name == initial_image_name
+
+    # Test 3: Press '2n' to go to next 2 images
+    # First press '2'
+    key_event_2 = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_2, Qt.NoModifier, "2")
+    win.keyPressEvent(key_event_2)
+    qtbot.wait(50)
+    # Then press 'n'
+    qtbot.keyClick(win, Qt.Key_N)
+    qtbot.wait(100)
+    assert win.fileListWidget.currentRow() == 2
+    assert pathlib.Path(win.imagePath).name == "2011_000025.jpg"
+
+    # Test 4: Press 'p' to go back one (should go to image 1)
+    qtbot.keyClick(win, Qt.Key_P)
+    qtbot.wait(100)
+    assert win.fileListWidget.currentRow() == 1
+    assert pathlib.Path(win.imagePath).name == "2011_000006.jpg"
+
+    # Test 5: Press '10n' - should go to next 10, but only 1 more available (to image 2)
+    # Press '1'
+    key_event_1 = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_1, Qt.NoModifier, "1")
+    win.keyPressEvent(key_event_1)
+    qtbot.wait(50)
+    # Press '0'
+    key_event_0 = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_0, Qt.NoModifier, "0")
+    win.keyPressEvent(key_event_0)
+    qtbot.wait(50)
+    # Press 'n'
+    qtbot.keyClick(win, Qt.Key_N)
+    qtbot.wait(100)
+    # Should be at last image (row 2)
+    assert win.fileListWidget.currentRow() == 2
+    assert pathlib.Path(win.imagePath).name == "2011_000025.jpg"
+
+    # Test 6: Press '100p' - should go back 100, but only 2 available (to image 0)
+    # Press '1'
+    win.keyPressEvent(key_event_1)
+    qtbot.wait(50)
+    # Press '0'
+    win.keyPressEvent(key_event_0)
+    qtbot.wait(50)
+    # Press '0' again
+    win.keyPressEvent(key_event_0)
+    qtbot.wait(50)
+    # Press 'p'
+    qtbot.keyClick(win, Qt.Key_P)
+    qtbot.wait(100)
+    # Should be at first image (row 0)
+    assert win.fileListWidget.currentRow() == 0
+    assert pathlib.Path(win.imagePath).name == initial_image_name
+
+    # Test 7: Press 'n' at first image - should go to next
+    qtbot.keyClick(win, Qt.Key_N)
+    qtbot.wait(100)
+    assert win.fileListWidget.currentRow() == 1
+
+    # Test 8: Press 'p' at middle image - should go to previous
+    qtbot.keyClick(win, Qt.Key_P)
+    qtbot.wait(100)
+    assert win.fileListWidget.currentRow() == 0
+
+    win.close()
+
+
+@pytest.mark.gui
+def test_navigation_number_prefix_timeout(qtbot: QtBot, data_path: pathlib.Path) -> None:
+    """Test that number prefix times out after 1 second."""
+    directory: str = str(data_path / "raw")
+    win: labelme.app.MainWindow = labelme.app.MainWindow(filename=directory)
+    qtbot.addWidget(win)
+    _show_window_and_wait_for_imagedata(qtbot=qtbot, win=win)
+
+    # Press '1' to start building prefix
+    key_event_1 = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_1, Qt.NoModifier, "1")
+    win.keyPressEvent(key_event_1)
+    qtbot.wait(50)
+    assert win._nav_number_prefix == "1"
+
+    # Wait for timeout (1 second + small buffer)
+    qtbot.wait(1100)
+    # Prefix should be cleared
+    assert win._nav_number_prefix == ""
 
     win.close()

@@ -914,6 +914,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().addWidget(self.status_right, 0)
         self.statusBar().show()
 
+        # State for number prefix navigation (e.g., "10n" for next 10 images)
+        self._nav_number_prefix = ""  # Accumulated number string
+        self._nav_timer = QtCore.QTimer(self)
+        self._nav_timer.setSingleShot(True)
+        self._nav_timer.timeout.connect(self._reset_nav_prefix)
+
         if output_file is not None and self._config["auto_save"]:
             logger.warning(
                 "If `auto_save` argument is True, `output_file` argument "
@@ -1352,13 +1358,47 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions.edit.setEnabled(n_selected)
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
-        """Handle keyboard shortcuts for label assignment."""
+        """Handle keyboard shortcuts for label assignment and navigation."""
         key = event.key()
         modifiers = event.modifiers()
+        text = event.text().lower()
+        
+        # Handle navigation commands: n (next) and p (previous) with number prefix
+        if modifiers == Qt.NoModifier:
+            # Check for 'n' (next) or 'p' (previous)
+            if text == 'n' or key == Qt.Key_N:
+                count = int(self._nav_number_prefix) if self._nav_number_prefix else 1
+                self._reset_nav_prefix()
+                self._navigate_images(count, 'next')
+                event.accept()
+                return
+            elif text == 'p' or key == Qt.Key_P:
+                count = int(self._nav_number_prefix) if self._nav_number_prefix else 1
+                self._reset_nav_prefix()
+                self._navigate_images(count, 'prev')
+                event.accept()
+                return
+            # Check for number keys (0-9) to build number prefix
+            # Only build prefix if we're not in editing mode with selected shapes
+            # (to avoid conflict with label assignment shortcuts)
+            elif (text.isdigit() and 
+                  not (self.canvas.editing() and self.canvas.selectedShapes and not self._nav_number_prefix)):
+                # Accumulate the number
+                self._nav_number_prefix += text
+                # Reset timer - if user doesn't press n/p within 1 second, clear prefix
+                self._nav_timer.stop()
+                self._nav_timer.start(1000)  # 1 second timeout
+                event.accept()
+                return
+        
         
         # Only handle number keys when no modifiers are pressed
         # and canvas is in editing mode with selected shapes
-        if modifiers == Qt.NoModifier and self.canvas.editing() and self.canvas.selectedShapes:
+        # But skip if we're building a navigation prefix
+        if (modifiers == Qt.NoModifier and 
+            self.canvas.editing() and 
+            self.canvas.selectedShapes and
+            not self._nav_number_prefix):
             # Map number keys to indices: 1-9 -> 0-8, 0 -> 9
             key_to_index = {
                 Qt.Key_1: 0,
@@ -2032,6 +2072,50 @@ class MainWindow(QtWidgets.QMainWindow):
         logger.debug("setting current row to {:d}", row_next)
         self.fileListWidget.setCurrentRow(row_next)
         self.fileListWidget.repaint()
+
+    def _reset_nav_prefix(self) -> None:
+        """Reset the navigation number prefix."""
+        self._nav_number_prefix = ""
+    
+    def _navigate_images(self, count: int, direction: str) -> None:
+        """Navigate images by count in the specified direction.
+        
+        Args:
+            count: Number of images to navigate
+            direction: 'next' or 'prev'
+        """
+        if direction == 'prev':
+            # Navigate previous
+            for _ in range(count):
+                row_prev = self.fileListWidget.currentRow() - 1
+                if row_prev < 0:
+                    logger.debug("reached first image, stopping navigation")
+                    break
+                self.fileListWidget.setCurrentRow(row_prev)
+        elif direction == 'next':
+            # Navigate next
+            for _ in range(count):
+                row_next = self.fileListWidget.currentRow() + 1
+                if row_next >= self.fileListWidget.count():
+                    logger.debug("reached last image, stopping navigation")
+                    break
+                self.fileListWidget.setCurrentRow(row_next)
+        
+        self.fileListWidget.repaint()
+    
+    def _execute_navigation_command(self, count: int, direction: str) -> None:
+        """Execute a navigation command from the command bar.
+        
+        Args:
+            count: Number of images to navigate
+            direction: 'h' for previous (left), 'l' for next (right)
+        """
+        self._cancel_command_mode()
+        
+        if direction == 'h':
+            self._navigate_images(count, 'prev')
+        elif direction == 'l':
+            self._navigate_images(count, 'next')
 
     def _open_file_with_dialog(self, _value: bool = False) -> None:
         if not self._can_continue():

@@ -2,6 +2,7 @@ from ._status import StatusStats
 from .ai_prompt_widget import AiPromptWidget
 from .brightness_contrast_dialog import BrightnessContrastDialog
 from .canvas import Canvas
+from .command_bar import CommandBar
 from .download import download_ai_model
 from .file_dialog_preview import FileDialogPreview
 from .label_dialog import LabelDialog
