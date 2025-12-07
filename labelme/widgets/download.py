@@ -34,8 +34,17 @@ class _AiModelDownloadWorker(QRunnable):
 
 
 def download_ai_model(model_name: str, parent: QtWidgets.QWidget) -> bool:
-    model_type = osam.apis.get_model_type_by_name(model_name)
-    model_type = typing.cast(type[osam.types.Model], model_type)
+    # Check if this is a SAM3 model
+    if model_name.startswith("sam3:"):
+        from labelme._automation.sam3_adapter import get_sam3_model_type
+        try:
+            model_type = get_sam3_model_type(model_name)
+        except Exception as e:
+            logger.error(f"Failed to get SAM3 model type: {e}")
+            return False
+    else:
+        model_type = osam.apis.get_model_type_by_name(model_name)
+        model_type = typing.cast(type[osam.types.Model], model_type)
 
     if _is_already_downloaded := model_type.get_size() is not None:
         return True

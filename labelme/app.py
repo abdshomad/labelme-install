@@ -844,6 +844,9 @@ class MainWindow(QtWidgets.QMainWindow):
             ("sam2:small", "Sam2 (speed)"),
             ("sam2:latest", "Sam2 (balanced)"),
             ("sam2:large", "Sam2 (accuracy)"),
+            ("sam3:small", "Sam3 (speed)"),
+            ("sam3:latest", "Sam3 (balanced)"),
+            ("sam3:large", "Sam3 (accuracy)"),
         ]
         for model_name, model_ui_name in MODEL_NAMES:
             self._selectAiModelComboBox.addItem(model_ui_name, userData=model_name)

@@ -174,10 +174,21 @@ class Canvas(QtWidgets.QWidget):
         if self._ai_model_cache and self._ai_model_cache.name == self._ai_model_name:
             return self._ai_model_cache
 
-        model_type = osam.apis.get_model_type_by_name(self._ai_model_name)
-
-        self._ai_model_cache = model_type()
-        return self._ai_model_cache
+        # Check if this is a SAM3 model
+        if self._ai_model_name.startswith("sam3:"):
+            from labelme._automation.sam3_adapter import get_sam3_model_type
+            try:
+                model_type = get_sam3_model_type(self._ai_model_name)
+                self._ai_model_cache = model_type()
+                return self._ai_model_cache
+            except Exception as e:
+                logger.error(f"Failed to load SAM3 model: {e}")
+                raise
+        else:
+            # Use osam for SAM/SAM2 models
+            model_type = osam.apis.get_model_type_by_name(self._ai_model_name)
+            self._ai_model_cache = model_type()
+            return self._ai_model_cache
 
     def _get_ai_image_embedding(self) -> osam.types.ImageEmbedding:
         qimage: QtGui.QImage = self.pixmap.toImage()

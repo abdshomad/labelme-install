@@ -36,7 +36,15 @@ dependencies = [
   "pyqt5-qt5!=5.15.11,!=5.15.12,!=5.15.13,!=5.15.14,!=5.15.15,!=5.15.16 ; sys_platform == 'win32'",
   "pyyaml",
   "scikit-image",
+  "sam3 @ git+https://github.com/facebookresearch/sam3.git",
+  "einops",  # Required by sam3.sam module
+  "pycocotools",  # Required by sam3.train.data
+  "decord",  # Required by sam3.train.data (optional but imported)
+  "psutil",  # Required by sam3.model.sam3_video_predictor
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.metadata.hooks.fancy-pypi-readme]
 content-type = "text/markdown"
