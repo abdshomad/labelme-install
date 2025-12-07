@@ -513,9 +513,42 @@ class MainWindow(QtWidgets.QMainWindow):
         zoomLabel = QtWidgets.QLabel(self.tr("Zoom"))
         zoomLabel.setAlignment(Qt.AlignCenter)
         zoomBoxLayout.addWidget(zoomLabel)
-        zoomBoxLayout.addWidget(self.zoomWidget)
+        
+        # Create horizontal layout for zoom controls with + and - buttons
+        zoomControlsLayout = QtWidgets.QHBoxLayout()
+        zoomControlsLayout.setContentsMargins(0, 0, 0, 0)
+        zoomControlsLayout.setSpacing(2)
+        
+        # Zoom out button (-)
+        zoomOutBtn = QtWidgets.QPushButton("-")
+        zoomOutBtn.setToolTip(self.tr("Zoom Out"))
+        zoomOutBtn.setMaximumWidth(25)
+        zoomOutBtn.setEnabled(False)
+        zoomOutBtn.clicked.connect(lambda: self._add_zoom(increment=0.9))
+        
+        # Zoom widget (spinbox)
+        zoomControlsLayout.addWidget(zoomOutBtn)
+        zoomControlsLayout.addWidget(self.zoomWidget)
+        
+        # Zoom in button (+)
+        zoomInBtn = QtWidgets.QPushButton("+")
+        zoomInBtn.setToolTip(self.tr("Zoom In"))
+        zoomInBtn.setMaximumWidth(25)
+        zoomInBtn.setEnabled(False)
+        zoomInBtn.clicked.connect(lambda: self._add_zoom(increment=1.1))
+        zoomControlsLayout.addWidget(zoomInBtn)
+        
+        # Container widget for zoom controls
+        zoomControlsWidget = QtWidgets.QWidget()
+        zoomControlsWidget.setLayout(zoomControlsLayout)
+        zoomBoxLayout.addWidget(zoomControlsWidget)
+        
         zoom.setDefaultWidget(QtWidgets.QWidget())
         zoom.defaultWidget().setLayout(zoomBoxLayout)
+        
+        # Store button references for enabling/disabling
+        self.zoomInBtn = zoomInBtn
+        self.zoomOutBtn = zoomOutBtn
         self.zoomWidget.setWhatsThis(
             str(
                 self.tr(
@@ -710,6 +743,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Group zoom controls into a list for easier toggling.
         self.zoom_actions = (
             self.zoomWidget,
+            self.zoomInBtn,
+            self.zoomOutBtn,
             zoomIn,
             zoomOut,
             zoomOrg,
@@ -974,7 +1009,35 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 self._load_file(filename=filename)
         else:
-            self.filename = None
+            # Try to load the last opened image from settings
+            last_filename = self.settings.value("filename", "")
+            if last_filename:
+                last_filename = str(last_filename)
+                # If it's a directory, import it
+                if osp.isdir(last_filename):
+                    self._import_images_from_dir(root_dir=last_filename)
+                    self._open_next_image()
+                elif QtCore.QFile.exists(last_filename):
+                    # It's a file that exists, try to load it
+                    # First, if it's in a directory, import images from that directory
+                    file_dir = osp.dirname(last_filename)
+                    if file_dir and osp.exists(file_dir):
+                        self._import_images_from_dir(root_dir=file_dir)
+                        # Try to select the file in the list
+                        if last_filename in self.imageList:
+                            self.fileListWidget.setCurrentRow(self.imageList.index(last_filename))
+                            self.fileListWidget.repaint()
+                        else:
+                            # File not in list, load it directly
+                            self._load_file(filename=last_filename)
+                    else:
+                        # Just try to load the file directly
+                        self._load_file(filename=last_filename)
+                else:
+                    # File doesn't exist, start with no file
+                    self.filename = None
+            else:
+                self.filename = None
 
         # Populate the File menu dynamically.
         self.updateFileMenu()
@@ -1011,10 +1074,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.imagePath:
             window_title = f"{window_title} - {self.imagePath}"
             if self.fileListWidget.count() and self.fileListWidget.currentItem():
+                current = self.fileListWidget.currentRow() + 1
+                total = self.fileListWidget.count()
+                percentage = (current / total * 100) if total > 0 else 0
                 window_title = (
                     f"{window_title} "
-                    f"[{self.fileListWidget.currentRow() + 1}"
-                    f"/{self.fileListWidget.count()}]"
+                    f"[{current}/{total} - {percentage:.1f}%]"
                 )
         if dirty:
             window_title = f"{window_title}*"
@@ -2038,7 +2103,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, a0: QtGui.QCloseEvent) -> None:
         if not self._can_continue():
             a0.ignore()
-        self.settings.setValue("filename", self.filename if self.filename else "")
+        # Save the last opened image path (only if a file is currently open)
+        if self.filename:
+            self.settings.setValue("filename", self.filename)
         self.settings.setValue("window/size", self.size())
         self.settings.setValue("window/position", self.pos())
         self.settings.setValue("window/state", self.saveState())
