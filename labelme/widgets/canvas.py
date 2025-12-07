@@ -80,6 +80,10 @@ class Canvas(QtWidgets.QWidget):
     _is_dragging: bool
     _is_dragging_enabled: bool
 
+    _selection_rect_start: QPointF | None
+    _selection_rect_end: QPointF | None
+    _is_selection_rect_mode: bool
+
     _ai_model_name: str = "sam2:latest"
     _ai_model_cache: osam.types.Model | None = None
     _ai_image_embedding_cache: collections.deque[tuple[str, osam.types.ImageEmbedding]]
@@ -254,6 +258,11 @@ class Canvas(QtWidgets.QWidget):
         return self.mode == CanvasMode.EDIT
 
     def setEditing(self, value=True):
+        # Clear selection rectangle when switching modes
+        if self._is_selection_rect_mode:
+            self._selection_rect_start = None
+            self._selection_rect_end = None
+            self._is_selection_rect_mode = False
         self.mode = CanvasMode.EDIT if value else CanvasMode.CREATE
         if self.mode == CanvasMode.EDIT:
             # CREATE -> EDIT
@@ -420,6 +429,14 @@ class Canvas(QtWidgets.QWidget):
             self._update_status()
             return
 
+        # Selection rectangle mode - update rectangle as mouse moves
+        if self._is_selection_rect_mode and Qt.LeftButton & a0.buttons():
+            if self._selection_rect_start is not None:
+                self._selection_rect_end = pos
+                self.repaint()
+            self._update_status()
+            return
+
         # Polygon/Vertex moving.
         if Qt.LeftButton & a0.buttons():
             if self.selectedVertex():
@@ -431,6 +448,11 @@ class Canvas(QtWidgets.QWidget):
                 self.boundedMoveShapes(self.selectedShapes, pos)
                 self.repaint()
                 self.movingShape = True
+            return
+
+        # Don't do shape highlighting when in selection rectangle mode
+        if self._is_selection_rect_mode:
+            self._update_status()
             return
 
         # Just hovering over the canvas, 2 possibilities:
@@ -593,11 +615,28 @@ class Canvas(QtWidgets.QWidget):
                     Qt.AltModifier | Qt.ShiftModifier
                 ):
                     self.removeSelectedPoint()
-
-                group_mode = int(a0.modifiers()) == Qt.ControlModifier
-                self.selectShapePoint(pos, multiple_selection_mode=group_mode)
-                self.prevPoint = pos
-                self.repaint()
+                elif int(a0.modifiers()) == Qt.ShiftModifier:
+                    # Shift key pressed - start selection rectangle mode
+                    # Always start selection rectangle when Shift is pressed (unless clicking on vertex/edge)
+                    if not self.selectedVertex() and not self.selectedEdge():
+                        # Start selection rectangle mode from first click
+                        self._selection_rect_start = pos
+                        self._selection_rect_end = pos
+                        self._is_selection_rect_mode = True
+                        self.overrideCursor(CURSOR_DRAW)
+                        self.prevPoint = pos
+                        self.repaint()
+                    else:
+                        # Clicking on vertex/edge, use normal selection
+                        group_mode = int(a0.modifiers()) == Qt.ControlModifier
+                        self.selectShapePoint(pos, multiple_selection_mode=group_mode)
+                        self.prevPoint = pos
+                        self.repaint()
+                else:
+                    group_mode = int(a0.modifiers()) == Qt.ControlModifier
+                    self.selectShapePoint(pos, multiple_selection_mode=group_mode)
+                    self.prevPoint = pos
+                    self.repaint()
         elif a0.button() == Qt.RightButton and self.editing():
             group_mode = int(a0.modifiers()) == Qt.ControlModifier
             if not self.selectedShapes or (
@@ -621,7 +660,32 @@ class Canvas(QtWidgets.QWidget):
                 self.selectedShapesCopy = []
                 self.repaint()
         elif a0.button() == Qt.LeftButton:
-            if self.editing():
+            if self._is_selection_rect_mode:
+                # Complete selection rectangle and select shapes
+                if self._selection_rect_start is not None and self._selection_rect_end is not None:
+                    # Calculate selection rectangle
+                    start = self._selection_rect_start
+                    end = self._selection_rect_end
+                    selection_rect = QtCore.QRectF(
+                        min(start.x(), end.x()),
+                        min(start.y(), end.y()),
+                        abs(end.x() - start.x()),
+                        abs(end.y() - start.y())
+                    )
+                    
+                    # Find all shapes in rectangle
+                    selected_shapes = self._get_shapes_in_rectangle(selection_rect)
+                    
+                    # Select all shapes
+                    self.selectShapes(selected_shapes)
+                
+                # Clear selection rectangle state
+                self._selection_rect_start = None
+                self._selection_rect_end = None
+                self._is_selection_rect_mode = False
+                self.restoreCursor()
+                self.repaint()
+            elif self.editing():
                 if (
                     self.hShape is not None
                     and self.hShapeIsSelected
@@ -737,6 +801,17 @@ class Canvas(QtWidgets.QWidget):
         y2 = bottom - point.y()
         self.offsets = QPointF(x1, y1), QPointF(x2, y2)
 
+    def _get_shapes_in_rectangle(self, rect: QtCore.QRectF) -> list[Shape]:
+        """Find all visible shapes that intersect with the given rectangle."""
+        intersecting_shapes = []
+        for shape in self.shapes:
+            if not self.isVisible(shape):
+                continue
+            shape_rect = shape.boundingRect()
+            if rect.intersects(shape_rect):
+                intersecting_shapes.append(shape)
+        return intersecting_shapes
+
     def boundedMoveVertex(self, pos: QPointF) -> None:
         if self.hVertex is None:
             logger.warning("hVertex is None, so cannot move vertex: pos=%r", pos)
@@ -815,6 +890,28 @@ class Canvas(QtWidgets.QWidget):
         p.drawPixmap(0, 0, self.pixmap)
 
         p.scale(1 / self.scale, 1 / self.scale)
+
+        # draw selection rectangle
+        if (
+            self._is_selection_rect_mode
+            and self._selection_rect_start is not None
+            and self._selection_rect_end is not None
+        ):
+            start = self._selection_rect_start
+            end = self._selection_rect_end
+            selection_rect = QtCore.QRectF(
+                min(start.x(), end.x()),
+                min(start.y(), end.y()),
+                abs(end.x() - start.x()),
+                abs(end.y() - start.y())
+            )
+            
+            # Draw selection rectangle with dashed lines and semi-transparent fill
+            pen = QtGui.QPen(QtGui.QColor(0, 100, 255, 200), 2, Qt.DashLine)
+            brush = QtGui.QBrush(QtGui.QColor(0, 100, 255, 30))
+            p.setPen(pen)
+            p.setBrush(brush)
+            p.drawRect(selection_rect)
 
         # draw crosshair
         if (
@@ -1036,6 +1133,15 @@ class Canvas(QtWidgets.QWidget):
             elif modifiers == Qt.AltModifier:
                 self.snapping = False
         elif self.editing():
+            # Cancel selection rectangle on Escape
+            if key == Qt.Key_Escape and self._is_selection_rect_mode:
+                self._selection_rect_start = None
+                self._selection_rect_end = None
+                self._is_selection_rect_mode = False
+                self.restoreCursor()
+                self.repaint()
+                a0.accept()
+                return
             if key == Qt.Key_Up:
                 self.moveByKeyboard(QPointF(0.0, -MOVE_SPEED))
             elif key == Qt.Key_Down:
@@ -1176,6 +1282,9 @@ class Canvas(QtWidgets.QWidget):
         self.prevhVertex = None
         self.hEdge = None
         self.prevhEdge = None
+        self._selection_rect_start = None
+        self._selection_rect_end = None
+        self._is_selection_rect_mode = False
         self.update()
 
 
